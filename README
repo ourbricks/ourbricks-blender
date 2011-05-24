@@ -14,6 +14,14 @@ Blender addons directory:
 
 <blender-install-dir>/<blender-version>/scripts/addons/ourbricks_blender
 
+To enable the addon, open Blender and navigate to the Addon options
+via File > User Preferences. Select the 'Add-Ons' tab, select
+'Import-Export' on the left. Find 'Import-Export: OurBricks for
+Blender' and tick the checkbox on the right. The addon is enabled and
+you should see the 'OurBricks Browser' to the left when in 'Object
+Mode'. To always enable the addon, click the 'Save As Default' button
+in the user preferences window after ticking the checkbox.
+
 
 License
 -------
