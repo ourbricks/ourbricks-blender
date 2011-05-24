@@ -14,13 +14,30 @@ Blender addons directory:
 
 <blender-install-dir>/<blender-version>/scripts/addons/ourbricks_blender
 
-To enable the addon, open Blender and navigate to the Addon options
-via File > User Preferences. Select the 'Add-Ons' tab, select
-'Import-Export' on the left. Find 'Import-Export: OurBricks for
-Blender' and tick the checkbox on the right. The addon is enabled and
-you should see the 'OurBricks Browser' to the left when in 'Object
-Mode'. To always enable the addon, click the 'Save As Default' button
-in the user preferences window after ticking the checkbox.
+To enable the addon: 
+1. Open Blender and navigate to the Addon options via File > User Preferences. 
+2. Select the 'Add-Ons' tab, select'Import-Export' on the left. 
+3. Find 'Import-Export: OurBricks for Blender' and tick the checkbox on the right. 
+
+The addon is now enabled and you should see the 'OurBricks Browser' to the left when 
+in 'Object Mode'. 
+
+To always enable the addon, click the 'Save As Default' button in the user preferences 
+window after ticking the checkbox.
+
+
+Using this script
+-----------------
+
+Import a model from OurBricks into Blender:
+
+1. Navigate to a model page at OurBricks.com. For instance: 
+http://ourbricks.com/viewer/4791b6c9234cac001f6424e2e2603ad4
+2. Locate the "Download" button (keep in mind that only not-for-sale models will have this) and click it.
+3. Now right click the download URL and copy it
+4. Back in Blender you paste the URL into the "OurBricks Browser" section and hit "Import"
+
+You model should now appear in Blender
 
 
 License
