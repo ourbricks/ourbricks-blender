@@ -50,7 +50,10 @@ if "bpy" in locals():
 
 import os
 import bpy
-from io_utils import ImportHelper
+try:
+    from bpy_extras.io_utils import ImportHelper
+except:
+    from io_utils import ImportHelper
 from bpy.props import CollectionProperty, StringProperty, BoolProperty, FloatProperty
 
 import zipfile, shutil, os.path
