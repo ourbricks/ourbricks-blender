@@ -59,6 +59,76 @@ from bpy.props import CollectionProperty, StringProperty, BoolProperty, FloatPro
 import zipfile, shutil, os.path
 import urllib.request
 
+import xml.dom.minidom
+
+OurBricksURL = 'http://ourbricks.com'
+ActivityURL = OurBricksURL + '/activity?rss'
+
+DataDir = 'ourbricks'
+ThumbnailFilename = 'thumbnail.jpg'
+
+
+bpy.ops.ourbricks = {}
+
+def local_asset_dir(asset_id):
+    """
+    Computes the local directory for storage related to an asset,
+    ensures its available, and returns it.
+    """
+    temp_dir = os.path.join(DataDir, asset_id)
+    if not os.path.exists(temp_dir): os.makedirs(temp_dir)
+    return temp_dir
+
+
+class Asset:
+    def __init__(self, asset_id, img_url, zip_url):
+        self.id = asset_id
+        self.img_url = img_url
+        self.zip_url = zip_url
+
+        self._getImage()
+
+    def _dataDir(self):
+        return local_asset_dir(self.id)
+
+    def _thumbnailFile(self):
+        return os.path.join(self._dataDir(), ThumbnailFilename)
+
+    def _getImage(self):
+        if not os.path.exists(self._thumbnailFile()):
+            urllib.request.urlretrieve(self.img_url, filename=self._thumbnailFile(), reporthook=None)
+        self.texture = bpy.data.images.load(self._thumbnailFile())
+
+def get_listing():
+    """
+    Get a listing of recent OurBricks uploads. Returns a list Assets.
+    """
+
+    result_items = []
+
+    rss_data = urllib.request.urlopen(ActivityURL)
+    rss_xml = xml.dom.minidom.parse(rss_data)
+
+    channel = rss_xml.getElementsByTagName('channel')[0]
+    items = channel.getElementsByTagName('item')
+    for item in items:
+        # Most of these are hackish, but a result of using the RSS
+        # feed instead of something nicer like a JSON API. This
+        # listing method is specifically isolated so we can easily
+        # swap out the implementation later.
+        asset_id = item.getElementsByTagName('guid')[0].childNodes[0].data.split('/')[-1]
+        img_url = item.getElementsByTagName('description')[0].childNodes[0].data
+        # Get part after start of img src attribute
+        split_href = img_url.split('src="', 1)[1]
+        # Get part before closing quote
+        img_url = split_href.split('"', 1)[0]
+        # FIXME
+        zip_url = ''
+        result_items.append( Asset(asset_id, img_url, zip_url) )
+
+    return result_items
+
+
 class OurBricksImport(bpy.types.Operator):
 
     bl_idname = "import_scene.ourbricks_collada"
@@ -81,8 +151,7 @@ class OurBricksImport(bpy.types.Operator):
         # This storage area is necessary because things like textures
         # need to remain on disk. Here we just use a centralized
         # repository and take care to name things nicely.
-        import_temp_dir = os.path.join('ourbricks', unique_id_part)
-        if not os.path.exists(import_temp_dir): os.makedirs(import_temp_dir)
+        import_temp_dir = local_asset_dir(unique_id_part)
 
         # Grab data
         path = os.path.join(import_temp_dir, 'foo.zip')
@@ -104,6 +173,17 @@ class OurBricksImport(bpy.types.Operator):
 
         return {'FINISHED'}
 
+class OurBricksListingUpdate(bpy.types.Operator):
+    bl_idname = "ourbricks.listing_update"
+    bl_description = 'Get recent model listing from OurBricks'
+    bl_label = "OurBricks Listing"
+
+    current_listing = None
+    def invoke(self, context, event):
+        current_listing = get_listing()
+
+        return {'FINISHED'}
+
 class OurBricksBrowserPanel(bpy.types.Panel):
     '''An interface for browsing and importing OurBricks content.'''
 
@@ -117,6 +197,9 @@ class OurBricksBrowserPanel(bpy.types.Panel):
         row.prop(context.scene, "ourbricks_model_url")
         row = self.layout.row()
         row.operator("import_scene.ourbricks_collada", text="Import")
+
+        row = self.layout.row()
+        row.operator("ourbricks.listing_update", text="Update Listing")
 
 
 def register():
