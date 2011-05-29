@@ -92,12 +92,17 @@ class Asset:
         return local_asset_dir(self.id)
 
     def _thumbnailFile(self):
-        return os.path.join(self._dataDir(), ThumbnailFilename)
+        return os.path.join(self._dataDir(), self.id + '-' + ThumbnailFilename)
+
+    def _textureName(self):
+        return 'ourbricks-thumbnail-' + self.id
 
     def _getImage(self):
         if not os.path.exists(self._thumbnailFile()):
             urllib.request.urlretrieve(self.img_url, filename=self._thumbnailFile(), reporthook=None)
-        self.texture = bpy.data.images.load(self._thumbnailFile())
+        self.image = bpy.data.images.load(self._thumbnailFile())
+        self.texture = bpy.data.textures.new(self._textureName(), type='IMAGE')
+        self.texture.image = self.image
 
 def get_listing():
     """
@@ -173,14 +178,15 @@ class OurBricksImport(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class OurBricksListingUpdate(bpy.types.Operator):
+class OurBricksListing(bpy.types.Operator):
     bl_idname = "ourbricks.listing_update"
     bl_description = 'Get recent model listing from OurBricks'
     bl_label = "OurBricks Listing"
 
-    current_listing = None
+    current_listing = []
+
     def invoke(self, context, event):
-        current_listing = get_listing()
+        OurBricksListing.current_listing = get_listing()
 
         return {'FINISHED'}
 
@@ -193,10 +199,16 @@ class OurBricksBrowserPanel(bpy.types.Panel):
     bl_label = "OurBricks Browser"
 
     def draw(self, context):
+        self.layout.active = True
+
         row = self.layout.row()
         row.prop(context.scene, "ourbricks_model_url")
         row = self.layout.row()
         row.operator("import_scene.ourbricks_collada", text="Import")
+
+        for item in OurBricksListing.current_listing:
+            row = self.layout.row()
+            row.template_preview(item.texture)
 
         row = self.layout.row()
         row.operator("ourbricks.listing_update", text="Update Listing")
