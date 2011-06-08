@@ -184,10 +184,32 @@ class OurBricksListing(bpy.types.Operator):
     bl_label = "OurBricks Listing"
 
     current_listing = []
+    current_offset = 0
 
     def invoke(self, context, event):
         OurBricksListing.current_listing = get_listing()
 
+        return {'FINISHED'}
+
+class OurBricksListingNext(bpy.types.Operator):
+    bl_idname = "ourbricks.listing_next"
+    bl_description = "Move to the next model in the OurBricks listing"
+    bl_label = "OurBricks Listing Next"
+
+    def invoke(self, context, event):
+        OurBricksListing.current_offset = (OurBricksListing.current_offset + 1) % len(OurBricksListing.current_listing)
+        context.scene.ourbricks_model_url = OurBricksListing.current_listing[OurBricksListing.current_offset].zip_url
+        return {'FINISHED'}
+
+class OurBricksListingPrev(bpy.types.Operator):
+    bl_idname = "ourbricks.listing_prev"
+    bl_description = "Move to the previous model in the OurBricks listing"
+    bl_label = "OurBricks Listing Prev"
+
+    def invoke(self, context, event):
+        nopts = len(OurBricksListing.current_listing)
+        OurBricksListing.current_offset = (OurBricksListing.current_offset + nopts - 1) % nopts
+        context.scene.ourbricks_model_url = OurBricksListing.current_listing[OurBricksListing.current_offset].zip_url
         return {'FINISHED'}
 
 class OurBricksBrowserPanel(bpy.types.Panel):
@@ -206,13 +228,18 @@ class OurBricksBrowserPanel(bpy.types.Panel):
         row = self.layout.row()
         row.operator("import_scene.ourbricks_collada", text="Import")
 
-        for item in OurBricksListing.current_listing:
+        return
+
+        if OurBricksListing.current_listing:
             row = self.layout.row()
-            row.template_preview(item.texture)
+            row.template_preview(OurBricksListing.current_listing[OurBricksListing.current_offset].texture)
+
+            row = self.layout.row()
+            row.operator("ourbricks.listing_prev", text="Prev")
+            row.operator("ourbricks.listing_next", text="Next")
 
         row = self.layout.row()
         row.operator("ourbricks.listing_update", text="Update Listing")
-
 
 def register():
     bpy.utils.register_module(__name__)
