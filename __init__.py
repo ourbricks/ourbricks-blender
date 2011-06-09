@@ -60,6 +60,7 @@ import zipfile, shutil, os.path
 import urllib.request
 
 import xml.dom.minidom
+import uuid
 
 OurBricksURL = 'http://ourbricks.com'
 ActivityURL = OurBricksURL + '/activity?rss'
@@ -70,12 +71,14 @@ ThumbnailFilename = 'thumbnail.jpg'
 
 bpy.ops.ourbricks = {}
 
-def local_asset_dir(asset_id):
+def local_asset_dir(asset_id, prefix=None):
     """
     Computes the local directory for storage related to an asset,
     ensures its available, and returns it.
     """
-    temp_dir = os.path.join(DataDir, asset_id)
+    temp_dir = DataDir
+    if prefix: temp_dir = os.path.join(temp_dir, prefix)
+    temp_dir = os.path.join(temp_dir, asset_id)
     if not os.path.exists(temp_dir): os.makedirs(temp_dir)
     return temp_dir
 
@@ -178,6 +181,48 @@ class OurBricksImport(bpy.types.Operator):
 
         return {'FINISHED'}
 
+def save_zip(zip_file, archive_dir):
+    """
+    Create a zip file out of archive dir. Unlike extraction, python
+    doesn't provide this functionality built-in, so we need to iterate
+    over the file ourselves to construct the file.
+    """
+    zipdata = zipfile.ZipFile(zip_file, mode='w')
+
+    for root, dirs, files in os.walk(archive_dir):
+        for name in files:
+            fname = os.path.join(root, name)
+            zipdata.write(fname)
+    zipdata.close()
+
+class OurBricksExport(bpy.types.Operator):
+
+    bl_idname = "export_scene.ourbricks_collada"
+    bl_description = 'Exports directly to OurBricks COLLADA'
+    bl_label = "Export OurBricks"
+
+    def invoke(self, context, event):
+        # Create a random id
+        export_id = uuid.uuid4().hex
+
+        # Create an export directory for this asset
+        export_temp_dir = local_asset_dir(export_id, 'export')
+
+        # FIXME name after the scene?
+        dae_path = os.path.join(export_temp_dir, 'ourbricks_blender_export.dae')
+        # FIXME can pick out the scene by specifying an initial parameter such as
+        # {"scene":bpy.data.scenes['scene_to_export']}
+        export_status = bpy.ops.wm.collada_export(filepath=dae_path)
+
+        # FIXME handle failures from export_status
+
+        # If blender did its thing, then we should just need to zip up
+        # everything under export_temp_dir and pass it along
+        zip_path = 'ourbricks_blender_export.zip'
+        save_zip(zip_path, export_temp_dir)
+
+        return {'FINISHED'}
+
 class OurBricksListing(bpy.types.Operator):
     bl_idname = "ourbricks.listing_update"
     bl_description = 'Get recent model listing from OurBricks'
@@ -223,10 +268,19 @@ class OurBricksBrowserPanel(bpy.types.Panel):
     def draw(self, context):
         self.layout.active = True
 
-        row = self.layout.row()
+        box = self.layout.box()
+        box.label('Import')
+        row = box.row()
         row.prop(context.scene, "ourbricks_model_url")
-        row = self.layout.row()
+        row = box.row()
         row.operator("import_scene.ourbricks_collada", text="Import")
+
+        box = self.layout.box()
+        box.label('Export')
+        #row = box.row()
+        #row.prop(context.scene, "ourbricks_model_url")
+        row = box.row()
+        row.operator("export_scene.ourbricks_collada", text="Export")
 
         return
 
