@@ -57,7 +57,7 @@ except:
 from bpy.props import CollectionProperty, StringProperty, BoolProperty, FloatProperty
 
 import zipfile, shutil, os.path
-import urllib.request
+import urllib.request, urllib.parse, urllib.error
 
 import xml.dom.minidom
 import uuid
@@ -84,11 +84,68 @@ except:
 # And now that we're sure we have httplib2, its safe to get oauth2
 import oauth2 as oauth2
 
+import json, webbrowser, time
+
+## Multipart encoding utilities
+import mimetypes
+def encode_multipart_formdata(fields, files):
+    """
+    fields is a sequence of (name, value) elements for regular form fields.
+    files is a sequence of (name, filename, value) elements for data to be uploaded as files
+    Return (content_type, body) ready for httplib.HTTP instance
+    """
+    BOUNDARY = '----------ThIs_Is_tHe_bouNdaRY_$'
+    CRLF = b'\r\n'
+    L = []
+    for (key, value) in fields:
+        L.append('--' + BOUNDARY)
+        L.append('Content-Disposition: form-data; name="%s"' % key)
+        L.append('')
+        L.append(value)
+    for (key, filename, value) in files:
+        L.append('--' + BOUNDARY)
+        L.append('Content-Disposition: form-data; name="%s"; filename="%s"' % (key, filename))
+        L.append('Content-Type: %s' % get_content_type(filename))
+        L.append('')
+        L.append(value)
+    L.append('--' + BOUNDARY + '--')
+    L.append('')
+    body = b''
+    for l in L:
+        if len(body) > 0:
+            body = body + CRLF
+        if isinstance(l, str):
+            body = body + bytes(l, 'utf-8')
+        else:
+            body = body + l
+    content_type = 'multipart/form-data; boundary=%s' % BOUNDARY
+    return content_type, body
+
+def get_content_type(filename):
+    return mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+
+
 OurBricksURL = 'http://ourbricks.com'
 ActivityURL = OurBricksURL + '/activity?rss'
 
 DataDir = 'ourbricks'
 ThumbnailFilename = 'thumbnail.jpg'
+
+
+# urls for accessing oauth at the service provider
+BASE_OURBRICKS_SERVER = 'ourbricks.com'
+BASE_OURBRICKS    = 'http://' + BASE_OURBRICKS_SERVER
+REQUEST_TOKEN_URL = BASE_OURBRICKS + '/oauth-request-token'
+ACCESS_TOKEN_URL  = BASE_OURBRICKS + '/oauth-access-token'
+AUTHORIZATION_URL = BASE_OURBRICKS + '/oauth-authorize'
+UPLOAD_RESOURCE = '/api/upload'
+UPLOAD_URL        = BASE_OURBRICKS + UPLOAD_RESOURCE
+UPLOAD_STATUS_URL = BASE_OURBRICKS + '/api/upload-status'
+VIEWER_URL        = BASE_OURBRICKS + '/viewer/'
+
+# key and secret granted by the service provider for this consumer application
+CONSUMER_KEY = '13e29e79c0ecd44ab4cb9655b843b6bb'
+CONSUMER_SECRET = '2b026d2b7643cbdc5e654db867222e32'
 
 
 bpy.ops.ourbricks = {}
@@ -217,6 +274,189 @@ def save_zip(zip_file, archive_dir):
             zipdata.write(fname)
     zipdata.close()
 
+# Global static auth data
+request_token = {}
+access_token = {}
+
+def do_start_auth():
+    global request_token
+
+    consumer = oauth2.Consumer(CONSUMER_KEY, CONSUMER_SECRET)
+    client = oauth2.Client(consumer)
+
+    # Step 1: Get a request token. This is a temporary token that is used for
+    # having the user authorize an access token and to sign the request to obtain
+    # said access token.
+
+    resp, content = client.request(REQUEST_TOKEN_URL, "GET")
+    if resp['status'] != '200':
+        raise "Error code: %s" % resp['status']
+
+    request_token_b = dict(urllib.parse.parse_qsl(content))
+    request_token = {}
+    for k,v in request_token_b.items():
+        request_token[ k.decode('utf-8') ] = v.decode('utf-8')
+
+    print("Request Token:")
+    print("    - oauth_token        = %s" % request_token['oauth_token'])
+    print("    - oauth_token_secret = %s" % request_token['oauth_token_secret'])
+    print()
+
+    # Step 2: Redirect to the provider. Since this is a CLI script we do not
+    # redirect. In a web application you would redirect the user to the URL
+    # below.
+
+    auth_url = "%s?oauth_token=%s" % (AUTHORIZATION_URL, request_token['oauth_token'])
+    print("Go to the following link in your browser:")
+    print(auth_url)
+    print()
+
+    webbrowser.open(auth_url)
+
+
+def do_finish_auth(pin):
+    global request_token
+    global access_token
+
+    consumer = oauth2.Consumer(CONSUMER_KEY, CONSUMER_SECRET)
+
+    # After the user has granted access to you, the consumer, the provider will
+    # redirect you to whatever URL you have told them to redirect to. You can
+    # usually define this in the oauth_callback argument as well.
+    oauth_verifier = pin
+
+    # Step 3: Once the consumer has redirected the user back to the oauth_callback
+    # URL you can request the access token the user has approved. You use the
+    # request token to sign this request. After this is done you throw away the
+    # request token and use the access token returned. You should store this
+    # access token somewhere safe, like a database, for future use.
+    token = oauth2.Token(request_token['oauth_token'],
+        request_token['oauth_token_secret'])
+    token.set_verifier(oauth_verifier)
+    client = oauth2.Client(consumer, token)
+
+    resp, content = client.request(ACCESS_TOKEN_URL, "POST")
+    if resp['status'] != '200':
+        raise "Error code: %s" % resp['status']
+
+    access_token_b = dict(urllib.parse.parse_qsl(content))
+    access_token = {}
+    for k,v in access_token_b.items():
+        access_token[ k.decode('utf-8') ] = v.decode('utf-8')
+
+    print("Access Token:")
+    print("    - oauth_token        = %s" % access_token['oauth_token'])
+    print("    - oauth_token_secret = %s" % access_token['oauth_token_secret'])
+    print()
+
+def do_upload(zip_file, upload_params):
+    global access_token
+    token, token_secret = access_token['oauth_token'], access_token['oauth_token_secret']
+
+    # Step 4: We have an access token, so we can issue
+    # an upload request on behalf of the user
+    consumer = oauth2.Consumer(CONSUMER_KEY, CONSUMER_SECRET)
+
+    token = oauth2.Token(token, token_secret)
+
+    req = oauth2.Request.from_consumer_and_token(consumer,
+                                                 token=token,
+                                                 http_method="POST",
+                                                 http_url=UPLOAD_URL,
+                                                 parameters=upload_params)
+
+    req.sign_request(oauth2.SignatureMethod_HMAC_SHA1(), consumer, token)
+    compiled_postdata = req.to_postdata()
+    all_upload_params = urllib.parse.parse_qs(compiled_postdata, keep_blank_values=True)
+
+    #parse_qs returns values as arrays, so convert back to strings
+    multipart_fields = []
+    for key, val in all_upload_params.items():
+        multipart_fields.append( (key, val[0]) )
+
+    multipart_files = []
+    for i, fpath in enumerate( [zip_file] ):
+        fp = open(fpath, 'rb')
+        data = fp.read()
+        fp.close()
+        multipart_files.append( ('file' + str(i), zip_file, data) )
+
+
+    try:
+        import http.client
+        content_type, body = encode_multipart_formdata(multipart_fields, multipart_files)
+        headers = {
+            'Content-Type': content_type,
+            'Content-Length' : str(len(body))
+            }
+        conn = http.client.HTTPConnection(BASE_OURBRICKS_SERVER)
+        conn.request("POST", UPLOAD_RESOURCE, body, headers)
+        response = conn.getresponse()
+        print(response.status, response.reason)
+        respdata = response.read()
+        conn.close()
+    except:
+        print('Exception trying to send http request.')
+        return False
+
+    result = json.loads(respdata.decode('utf-8'))
+    if result.get('success') != True or 'uploadid' not in result:
+        print('Upload failed. Error = ', result.get('error'), file=sys.stderr)
+        print(file=sys.stderr)
+        return False
+
+    uploadid = result['uploadid']
+    print('Succeeded in submitting upload. Upload id = %s Checking status...' % (uploadid,))
+    print()
+
+    client = oauth2.Client(consumer, token)
+
+    complete = False
+    while not complete:
+        resp, content = client.request('%s?uploadid=%s' % (UPLOAD_STATUS_URL, uploadid), "GET")
+        if resp['status'] != '200':
+            exitprint(resp, content)
+        result = json.loads(content.decode('utf-8'))
+        if 'complete' not in result:
+            exitprint(resp, content)
+        complete = result['complete']
+        if not(complete == False or complete == True):
+            complete = False
+        if complete == False:
+            print('Not complete. Status = %s' % (result.get('status_message').strip()))
+        time.sleep(2)
+
+    asset_url = "%s%s" % (VIEWER_URL, uploadid)
+
+    print()
+    print('Finished. Status = %s' % (result.get('status_message'),))
+    print()
+    print('You can find your upload at: %s' % asset_url)
+
+    webbrowser.open(asset_url)
+    return True
+
+
+class OurBricksStartAuth(bpy.types.Operator):
+
+    bl_idname = "export_scene.ourbricks_auth_start"
+    bl_description = 'Start authentication process with OurBricks'
+    bl_label = "Start Authentication OurBricks"
+
+    def invoke(self, context, event):
+        do_start_auth()
+        return {'FINISHED'}
+
+class OurBricksFinishAuth(bpy.types.Operator):
+
+    bl_idname = "export_scene.ourbricks_auth_finish"
+    bl_description = 'Finish authentication process with OurBricks'
+    bl_label = "Finish Authentication OurBricks"
+
+    def invoke(self, context, event):
+        do_finish_auth(pin=context.scene.ourbricks_model_oauth_pin)
+        return {'FINISHED'}
+
 class OurBricksExport(bpy.types.Operator):
 
     bl_idname = "export_scene.ourbricks_collada"
@@ -242,6 +482,19 @@ class OurBricksExport(bpy.types.Operator):
         # everything under export_temp_dir and pass it along
         zip_path = 'ourbricks_blender_export.zip'
         save_zip(zip_path, export_temp_dir)
+
+        # Now, we should be able to grab the necessary info and perform an upload
+        params = {
+            'title': context.scene.ourbricks_model_title,
+            'description': context.scene.ourbricks_model_description,
+            'tags': context.scene.ourbricks_model_tags,
+            'author': context.scene.ourbricks_model_author,
+            'price': '',
+            'license': 'CC Attribution'
+            }
+
+        if not do_upload(zip_path, params):
+            raise "Upload failed!"
 
         return {'FINISHED'}
 
@@ -299,8 +552,24 @@ class OurBricksBrowserPanel(bpy.types.Panel):
 
         box = self.layout.box()
         box.label('Export')
-        #row = box.row()
-        #row.prop(context.scene, "ourbricks_model_url")
+
+        row = box.row()
+        row.operator("export_scene.ourbricks_auth_start", text="Start Auth")
+        row = box.row()
+        row.prop(context.scene, "ourbricks_model_oauth_pin")
+        row = box.row()
+        row.operator("export_scene.ourbricks_auth_finish", text="Finish Auth")
+
+        row = box.row()
+        row.prop(context.scene, "ourbricks_model_title")
+        row = box.row()
+        row.prop(context.scene, "ourbricks_model_description")
+        row = box.row()
+        row.prop(context.scene, "ourbricks_model_tags")
+        row = box.row()
+        row.prop(context.scene, "ourbricks_model_author")
+        row = box.row()
+        row.label('License: CC Attribution') # FIXME Fixed for now, turn into drop down
         row = box.row()
         row.operator("export_scene.ourbricks_collada", text="Export")
 
@@ -319,11 +588,29 @@ class OurBricksBrowserPanel(bpy.types.Panel):
 
 def register():
     bpy.utils.register_module(__name__)
+    # Import
     bpy.types.Scene.ourbricks_model_url = StringProperty(default="", name="URL", description="URL of model to import")
+    # Export
+    bpy.types.Scene.ourbricks_model_title = StringProperty(default="", name="Title", description="Title for exported model")
+    bpy.types.Scene.ourbricks_model_description = StringProperty(default="", name="Description", description="Description for exported model")
+    bpy.types.Scene.ourbricks_model_tags = StringProperty(default="", name="Tags", description="Tags for exported model")
+    bpy.types.Scene.ourbricks_model_author = StringProperty(default="", name="Author", description="Author for exported model")
+
+    # FIXME hopefully these go away in favor of a full oauth process
+    bpy.types.Scene.ourbricks_model_oauth_pin = StringProperty(default="", name="PIN", description="OAuth2 PIN resulting from authorization")
+
 
 def unregister():
     bpy.utils.unregister_module(__name__)
+    # Import
     del bpy.types.Scene.ourbricks_model_url
+    # Export
+    del bpy.types.Scene.ourbricks_model_title
+    del bpy.types.Scene.ourbricks_model_description
+    del bpy.types.Scene.ourbricks_model_tags
+    del bpy.types.Scene.ourbricks_model_author
+
+    del bpy.types.Scene.ourbricks_model_oauth_pin
 
 if __name__ == "__main__":
     register()
