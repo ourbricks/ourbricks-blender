@@ -62,6 +62,28 @@ import urllib.request
 import xml.dom.minidom
 import uuid
 
+AddonDir = os.path.dirname(__file__)
+ExternalDir = os.path.join(AddonDir, 'external')
+import sys
+# Append path for oauth2
+sys.path.append( os.path.join(ExternalDir, 'oauth2') )
+# and for httplib
+sys.path.append(ExternalDir)
+# We need to auto-install httplib2 because there isn't a convenient
+try:
+    import httplib2
+except:
+    # Grab the archive
+    httplib2_zip = os.path.join(ExternalDir, 'httplib2.zip')
+    urllib.request.urlretrieve('http://httplib2.googlecode.com/files/httplib2-0.6.0.zip', filename=httplib2_zip)
+    # Extract data into a temporary location
+    zipdata = zipfile.ZipFile(httplib2_zip)
+    zipdata.extractall(path=ExternalDir)
+    # Move python3 version into place
+    shutil.move( os.path.join(ExternalDir, 'httplib2-0.6.0', 'python3', 'httplib2'), os.path.join(ExternalDir, 'httplib2') )
+# And now that we're sure we have httplib2, its safe to get oauth2
+import oauth2 as oauth2
+
 OurBricksURL = 'http://ourbricks.com'
 ActivityURL = OurBricksURL + '/activity?rss'
 

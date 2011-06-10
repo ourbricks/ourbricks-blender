@@ -1,0 +1,3 @@
+[submodule "external/oauth2"]
+	path = external/oauth2
+	url = https://github.com/ourbricks/python-oauth2.git
