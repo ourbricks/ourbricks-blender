@@ -5,7 +5,8 @@ OurBricks-Blender is an addon for Blender which makes it easy to
 interact with OurBricks.  The first feature is making it easy to
 import from and export to OurBricks directly within Blender.
 
-See [Documentation](https://github.com/ourbricks/ourbricks-blender/wiki/OurBricks-for-Blender-Documentation) for installation and usage instructions
+See documentation for installation and usage instructions:
+https://github.com/ourbricks/ourbricks-blender/wiki/OurBricks-for-Blender-Documentation
 
 License
 -------
